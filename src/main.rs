@@ -6,10 +6,9 @@ use octocrab::{params, Octocrab};
 use regex::Regex;
 use serde::Deserialize;
 use serde::Serialize;
-use simple_logger;
+
 use std::error::Error;
 use std::fs;
-use toml;
 
 #[derive(Debug, Clone, Deserialize)]
 struct Config {
@@ -59,7 +58,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn check_prs(octo: &Octocrab, repo: &str) -> Result<(), Box<dyn Error>> {
-    let prs = dependabot_prs_passing_checks(&octo, repo).await?;
+    let prs = dependabot_prs_passing_checks(octo, repo).await?;
 
     if prs.iter().any(|pr| pr.rebase_in_progress) {
         info!("One of the PRs is being rebased already. Skipping further actions.");
@@ -69,13 +68,13 @@ async fn check_prs(octo: &Octocrab, repo: &str) -> Result<(), Box<dyn Error>> {
     // Don't merge pre-release versions automatically.
     let prs = prs
         .into_iter()
-        .filter(|pr| !pr.new_version.contains("+"))
+        .filter(|pr| !pr.new_version.contains('+'))
         .collect::<Vec<_>>();
 
-    let maybe_rebase = if let Some(merged) = maybe_merge_one(&octo, &prs).await? {
-        prs.iter().filter(|pr| pr.url != merged.url).next()
+    let maybe_rebase = if let Some(merged) = maybe_merge_one(octo, &prs).await? {
+        prs.iter().find(|pr| pr.url != merged.url)
     } else {
-        prs.iter().next()
+        prs.first()
     };
 
     if let Some(to_rebase) = maybe_rebase {
@@ -90,13 +89,9 @@ async fn check_prs(octo: &Octocrab, repo: &str) -> Result<(), Box<dyn Error>> {
 
 async fn maybe_merge_one(
     octo: &Octocrab,
-    prs: &Vec<DependabotPr>,
+    prs: &[DependabotPr],
 ) -> Result<Option<DependabotPr>, Box<dyn Error>> {
-    if let Some(pr) = prs
-        .iter()
-        .filter(|pr| pr.all_checks_pass && pr.rebased)
-        .next()
-    {
+    if let Some(pr) = prs.iter().find(|pr| pr.all_checks_pass && pr.rebased) {
         info!("Merging {:?}", pr.url);
 
         // Approve
@@ -126,7 +121,7 @@ async fn dependabot_prs_passing_checks(
     octo: &Octocrab,
     repo: &str,
 ) -> Result<Vec<DependabotPr>, Box<dyn Error>> {
-    let mut parts = repo.split("/");
+    let mut parts = repo.split('/');
     let org = parts.next().unwrap().to_string();
     let repo = parts.next().unwrap().to_string();
 
@@ -171,7 +166,7 @@ async fn dependabot_prs_passing_checks(
                 org: org.clone(),
                 repo: repo.clone(),
             },
-            all_checks_pass: all_checks_pass,
+            all_checks_pass,
             rebased: pr.rebaseable.unwrap_or(false),
             rebase_in_progress: pr
                 .body
