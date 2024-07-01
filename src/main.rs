@@ -182,7 +182,7 @@ async fn dependabot_prs_passing_checks(
 }
 
 fn parse_version_from_pr(title: &str) -> Option<String> {
-    let re = Regex::new(r"to (\d+\.\d+\.\d+(-[a-zA-Z0-9\.]+)?(\+[a-zA-Z0-9\.]+)?)").unwrap();
+    let re = Regex::new(r"to (\d+\.\d+\.\d+(-[a-zA-Z0-9\.]+)?(a0)?(\+[a-zA-Z0-9\.]+)?)").unwrap();
     re.captures(title)
         .and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
 }
@@ -209,5 +209,9 @@ mod tests {
             parse_version_from_pr("Bump foo from 1.2.3 to 1.2.4-alpha.1+build.1"),
             Some("1.2.4-alpha.1+build.1".to_string())
         );
+        assert_eq!(
+            parse_version_from_pr("Bump foo from 1.2.3a0+201.fbdbcb12 to 1.2.3a0+210.bafdcd99"),
+            Some("1.2.3a0+210.bafdcd99".to_string())
+        )
     }
 }
