@@ -2,6 +2,7 @@
 //! Requires a personal GitHub token.
 
 use log::{self, info};
+use octocrab::params::repos::Reference;
 use octocrab::{params, Octocrab};
 use regex::Regex;
 use serde::Deserialize;
@@ -59,9 +60,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 async fn check_prs(octo: &Octocrab, repo: &str) -> Result<(), Box<dyn Error>> {
     let prs = dependabot_prs_passing_checks(octo, repo).await?;
+    if prs.is_empty() {
+        info!("[{}] No dependabot PRs to merge", repo);
+        return Ok(());
+    }
 
     if prs.iter().any(|pr| pr.rebase_in_progress) {
-        info!("One of the PRs is being rebased already. Skipping further actions.");
+        info!(
+            "[{}] One of the PRs is being rebased already. Skipping further actions.",
+            repo
+        );
         return Ok(());
     }
 
@@ -72,9 +80,9 @@ async fn check_prs(octo: &Octocrab, repo: &str) -> Result<(), Box<dyn Error>> {
         .collect::<Vec<_>>();
 
     let maybe_rebase = if let Some(merged) = maybe_merge_one(octo, &prs).await? {
-        prs.iter().find(|pr| pr.url != merged.url)
+        prs.iter().find(|pr| pr.url != merged.url && !pr.rebased)
     } else {
-        prs.first()
+        prs.iter().find(|pr| !pr.rebased)
     };
 
     if let Some(to_rebase) = maybe_rebase {
@@ -148,6 +156,16 @@ async fn dependabot_prs_passing_checks(
         let checks_url = format!("/repos/{}/{}/commits/{}/check-runs", org, repo, pr.head.sha);
         let check_runs: octocrab::models::CheckRuns = octo.get(checks_url, None::<&()>).await?;
 
+        let base_branch = octo
+            .repos(&org, &repo)
+            .get_ref(&Reference::Branch(pr.base.ref_field))
+            .await?;
+        let base_branch_sha = match base_branch.object {
+            octocrab::models::repos::Object::Commit { sha, .. } => sha,
+            octocrab::models::repos::Object::Tag { sha, .. } => sha,
+            _ => panic!("main branch is not a commit or tag"),
+        };
+
         let all_checks_pass = check_runs
             .check_runs
             .iter()
@@ -167,7 +185,7 @@ async fn dependabot_prs_passing_checks(
                 repo: repo.clone(),
             },
             all_checks_pass,
-            rebased: pr.rebaseable.unwrap_or(false),
+            rebased: pr.base.sha == base_branch_sha,
             rebase_in_progress: pr
                 .body
                 .map_or(false, |b| b.contains("Dependabot is rebasing this PR")),
