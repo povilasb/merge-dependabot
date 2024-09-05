@@ -1,7 +1,7 @@
 //! Automatically rebases and merges dependabot PRs.
 //! Requires a personal GitHub token.
 
-use log::{self, info};
+use log::{self, error, info};
 use octocrab::params::repos::Reference;
 use octocrab::{params, Octocrab};
 use regex::Regex;
@@ -52,7 +52,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .build()?;
 
     for repo in cfg.repos.iter() {
-        check_prs(&octo, repo).await?;
+        if let Err(e) = check_prs(&octo, repo).await {
+            error!("[{}] Error: {:?}", repo, e);
+        }
     }
 
     Ok(())
@@ -117,7 +119,11 @@ async fn maybe_merge_one(
             "/repos/{}/{}/pulls/{}/merge",
             pr.repo.org, pr.repo.repo, pr.number
         );
-        let _resp: IgnoreResp = octo.put(url, None::<&()>).await?;
+        let res: octocrab::Result<IgnoreResp> = octo.put(url, None::<&()>).await;
+        if let Err(e) = res {
+            info!("Failed to merge {:?}: {:?}", pr.url, e);
+            return Ok(None);
+        }
 
         Ok(Some(pr.clone()))
     } else {
